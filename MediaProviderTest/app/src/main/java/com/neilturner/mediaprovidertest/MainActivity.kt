@@ -250,7 +250,7 @@ fun CustomAlertDialog(result: MainActivity.Result, onDismiss: () -> Unit) {
             }
         },
         title = {
-            Text(text = if (result is MainActivity.Result.Success) "Query Result" else "Error")
+            Text(text = if (result is MainActivity.Result.Success) "Query Result" else "Error", color = Color.White)
         },
         text = {
             Column(
@@ -258,26 +258,27 @@ fun CustomAlertDialog(result: MainActivity.Result, onDismiss: () -> Unit) {
             ) {
                 when (result) {
                     is MainActivity.Result.Success -> {
-                        Text("Media count: ${result.count}")
+                        Text("Media count: ${result.count}", color = Color.White)
                         if (result.sampleUrl != null) {
-                            Text("Sample URL: ${result.sampleUrl}")
+                            Text("Sample URL: ${result.sampleUrl}", color = Color.White)
                         } else {
-                            Text("No URL found in random row")
+                            Text("No URL found in random row", color = Color.White)
                         }
                         if (result.samplePath != null) {
-                            Text("Sample Path: ${result.samplePath}")
+                            Text("Sample Path: ${result.samplePath}", color = Color.White)
                         }
                         if (result.resolvedFilename != null) {
-                            Text("Filename: ${result.resolvedFilename}")
+                            Text("Filename: ${result.resolvedFilename}", color = Color.White)
                         }
                     }
                     is MainActivity.Result.Error -> {
-                        Text("Error occurred:")
-                        Text(result.message)
+                        Text("Error occurred:", color = Color.White)
+                        Text(result.message, color = Color.White)
                     }
                 }
             }
-        }
+        },
+        containerColor = Color.DarkGray
     )
 }
 
