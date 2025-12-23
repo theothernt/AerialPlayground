@@ -19,9 +19,10 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.neilturner.mediaprovidertest.data.MediaRepository
-import com.neilturner.mediaprovidertest.domain.MediaType
 import com.neilturner.mediaprovidertest.domain.MediaValidator
 import com.neilturner.mediaprovidertest.ui.components.ResultDialog
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -57,23 +58,28 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 scope.launch {
                     val result = repository.queryMediaCount()
                     
-                    if (result is MediaRepository.QueryResult.Success && result.sampleUrl != null) {
-                        Log.i("MainScreen", "Query result received: ${result.count} items. Validating URL: ${result.sampleUrl}, MimeType: ${result.mimeType}")
+                    if (result is MediaRepository.QueryResult.Success) {
+                        Log.i("MainScreen", "Query result: ${result.count} items. Image: ${result.imageSample != null}, Video: ${result.videoSample != null}")
                         
-                        val mediaType = MediaType.fromUrl(result.sampleUrl, result.mimeType)
-                        when (mediaType) {
-                            MediaType.IMAGE -> {
+                        val validationJobs = mutableListOf<Job>()
+
+                        if (result.imageSample != null) {
+                            validationJobs.add(launch {
                                 imageLoadStatus = MediaValidator.ValidationStatus.Loading
-                                imageLoadStatus = validator.validateImage(result.sampleUrl)
-                            }
-                            MediaType.VIDEO -> {
-                                videoLoadStatus = MediaValidator.ValidationStatus.Loading
-                                videoLoadStatus = validator.validateVideo(result.sampleUrl)
-                            }
-                            MediaType.UNKNOWN -> {
-                                Log.w("MainScreen", "Unknown media type for: ${result.sampleUrl}")
-                            }
+                                imageLoadStatus = validator.validateImage(result.imageSample.url)
+                            })
                         }
+                        
+                        if (result.videoSample != null) {
+                            validationJobs.add(launch {
+                                videoLoadStatus = MediaValidator.ValidationStatus.Loading
+                                videoLoadStatus = validator.validateVideo(result.videoSample.url)
+                            })
+                        }
+                        
+                        // Wait for all validations to complete
+                        validationJobs.joinAll()
+                        
                     } else if (result is MediaRepository.QueryResult.Error) {
                         Log.e("MainScreen", "Query error received: ${result.message}")
                     }

@@ -4,9 +4,10 @@ import android.content.Context
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.net.toUri
+import com.neilturner.mediaprovidertest.domain.MediaType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.random.Random
+import java.util.Collections
 
 class MediaRepository(private val context: Context) {
 
@@ -15,15 +16,20 @@ class MediaRepository(private val context: Context) {
         private const val CONTENT_PROVIDER_AUTHORITY = "com.neilturner.aerialviews.media"
     }
 
+    data class MediaSample(
+        val url: String,
+        val path: String?,
+        val mimeType: String?,
+        val filename: String?
+    )
+
     sealed class QueryResult {
         data class Success(
             val count: Int,
             val columns: List<String>,
             val uri: String,
-            val sampleUrl: String?,
-            val samplePath: String?,
-            val mimeType: String?,
-            val resolvedFilename: String?
+            val imageSample: MediaSample?,
+            val videoSample: MediaSample?
         ) : QueryResult()
         data class Error(val message: String) : QueryResult()
     }
@@ -62,72 +68,89 @@ class MediaRepository(private val context: Context) {
                     val count = c.count
                     val columnNames = c.columnNames?.toList() ?: emptyList()
 
-                    var sampleUrl: String? = null
-                    var samplePath: String? = null
-                    var sampleMimeType: String? = null
-                    
+                    var imageSample: MediaSample? = null
+                    var videoSample: MediaSample? = null
+
                     if (count > 0) {
-                        val randomPos = Random.nextInt(count)
-                        if (c.moveToPosition(randomPos)) {
-                            // Try to find a URL column
-                            val urlColumnIndex = c.getColumnIndex("url")
-                            if (urlColumnIndex != -1) {
-                                sampleUrl = c.getString(urlColumnIndex)
-                            }
+                        // Create a list of indices and shuffle them to pick random items
+                        val indices = (0 until count).toList().shuffled()
+                        
+                        val urlColumnIndex = c.getColumnIndex("url")
+                        val dataColumnIndex = c.getColumnIndex("_data")
+                        val mimeTypeColumnIndex = c.getColumnIndex("mime_type")
 
-                            // Try to find _data column
-                            val dataColumnIndex = c.getColumnIndex("_data")
-                            if (dataColumnIndex != -1) {
-                                samplePath = c.getString(dataColumnIndex)
-                            }
+                        for (i in indices) {
+                            if (imageSample != null && videoSample != null) break // Found both
 
-                            // Try to find mime_type column
-                            val mimeTypeColumnIndex = c.getColumnIndex("mime_type")
-                            if (mimeTypeColumnIndex != -1) {
-                                sampleMimeType = c.getString(mimeTypeColumnIndex)
-                            }
+                            if (c.moveToPosition(i)) {
+                                var sampleUrl: String? = null
+                                var samplePath: String? = null
+                                var sampleMimeType: String? = null
 
-                            // Fallback
-                            if (sampleUrl == null) {
-                                for (i in 0 until c.columnCount) {
-                                    try {
-                                        val value = c.getString(i)
-                                        if (value != null && (value.startsWith("http") || value.startsWith("content"))) {
-                                            sampleUrl = value
-                                            break
+                                if (urlColumnIndex != -1) sampleUrl = c.getString(urlColumnIndex)
+                                if (dataColumnIndex != -1) samplePath = c.getString(dataColumnIndex)
+                                if (mimeTypeColumnIndex != -1) sampleMimeType = c.getString(mimeTypeColumnIndex)
+
+                                // Fallback for URL
+                                if (sampleUrl == null) {
+                                    for (col in 0 until c.columnCount) {
+                                        try {
+                                            val value = c.getString(col)
+                                            if (value != null && (value.startsWith("http") || value.startsWith("content"))) {
+                                                sampleUrl = value
+                                                break
+                                            }
+                                        } catch (e: Exception) { /* ignore */ }
+                                    }
+                                }
+
+                                if (sampleUrl != null) {
+                                    // Try to determine type
+                                    val determinedType = MediaType.fromUrl(sampleUrl, sampleMimeType)
+                                    
+                                    // If we haven't found a sample of this type yet, try to resolve details and save it
+                                    if ((determinedType == MediaType.IMAGE && imageSample == null) ||
+                                        (determinedType == MediaType.VIDEO && videoSample == null)) {
+                                        
+                                        var resolvedFilename: String? = null
+                                        if (sampleUrl.startsWith("content://")) {
+                                            try {
+                                                val contentUri = sampleUrl.toUri()
+                                                // Try to get type from ContentResolver if not found in cursor
+                                                if (sampleMimeType == null) {
+                                                    sampleMimeType = context.contentResolver.getType(contentUri)
+                                                }
+
+                                                context.contentResolver.query(contentUri, null, null, null, null)?.use { metaCursor ->
+                                                    if (metaCursor.moveToFirst()) {
+                                                        val nameIndex = metaCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                                        if (nameIndex != -1) {
+                                                            resolvedFilename = metaCursor.getString(nameIndex)
+                                                        }
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                Log.w(TAG, "Failed to resolve filename or type for $sampleUrl", e)
+                                            }
                                         }
-                                    } catch (e: Exception) {
-                                        // Ignore
+
+                                        val sample = MediaSample(sampleUrl, samplePath, sampleMimeType, resolvedFilename)
+                                        
+                                        if (determinedType == MediaType.IMAGE) {
+                                            imageSample = sample
+                                            Log.d(TAG, "Found Image Sample: $sampleUrl")
+                                        } else if (determinedType == MediaType.VIDEO) {
+                                            videoSample = sample
+                                            Log.d(TAG, "Found Video Sample: $sampleUrl")
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    var resolvedFilename: String? = null
-                    if (sampleUrl != null && sampleUrl.startsWith("content://")) {
-                        try {
-                            val contentUri = sampleUrl.toUri()
-                            // Try to get type from ContentResolver if not found in cursor
-                            if (sampleMimeType == null) {
-                                sampleMimeType = context.contentResolver.getType(contentUri)
-                            }
-
-                            context.contentResolver.query(contentUri, null, null, null, null)?.use { metaCursor ->
-                                if (metaCursor.moveToFirst()) {
-                                    val nameIndex = metaCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                                    if (nameIndex != -1) {
-                                        resolvedFilename = metaCursor.getString(nameIndex)
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to resolve filename or type for $sampleUrl", e)
-                        }
-                    }
-
-                    Log.d(TAG, "queryMediaCount: SUCCESS! Count: $count, MimeType: $sampleMimeType")
-                    QueryResult.Success(count, columnNames, uriStr, sampleUrl, samplePath, sampleMimeType, resolvedFilename)
+                    Log.d(TAG, "queryMediaCount: SUCCESS! Count: $count. Found Image: ${imageSample != null}, Video: ${videoSample != null}")
+                    QueryResult.Success(count, columnNames, uriStr, imageSample, videoSample)
                 }
             } else {
                 Log.e(TAG, "queryMediaCount: Cursor is null")

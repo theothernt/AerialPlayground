@@ -2,6 +2,8 @@ package com.neilturner.mediaprovidertest.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -10,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.neilturner.mediaprovidertest.data.MediaRepository
@@ -41,62 +44,64 @@ fun ResultDialog(
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 when (result) {
                     is MediaRepository.QueryResult.Success -> {
-                        Text("Media count: ${result.count}", color = Color.White)
-                        if (result.sampleUrl != null) {
-                            Text("Sample URL: ${result.sampleUrl}", color = Color.White)
-                        } else {
-                            Text("No URL found in random row", color = Color.White)
-                        }
-                        if (result.samplePath != null) {
-                            Text("Sample Path: ${result.samplePath}", color = Color.White)
-                        }
-                        if (result.mimeType != null) {
-                            Text("MIME Type: ${result.mimeType}", color = Color.White)
-                        }
-                        if (result.resolvedFilename != null) {
-                            Text("Filename: ${result.resolvedFilename}", color = Color.White)
-                        }
+                        Text("Total Media count: ${result.count}", color = Color.White)
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        // Display image loading status
-                        if (imageLoadStatus !is MediaValidator.ValidationStatus.Idle) {
-                            Text("", color = Color.White) // spacer
-                            Text("Image Status:", color = Color.Cyan)
+                        // IMAGE SECTION
+                        if (result.imageSample != null) {
+                            Text("Image Sample:", color = Color.Cyan, fontSize = 16.sp)
+                            Text("URL: ${result.imageSample.url}", color = Color.White, fontSize = 12.sp)
+                            if (result.imageSample.mimeType != null) {
+                                Text("MIME: ${result.imageSample.mimeType}", color = Color.LightGray, fontSize = 12.sp)
+                            }
+                            
                             when (imageLoadStatus) {
                                 is MediaValidator.ValidationStatus.Loading -> {
-                                    Text("Loading...", color = Color.Yellow)
-                                    CircularProgressIndicator(color = Color.White)
+                                    Text("Status: Loading...", color = Color.Yellow)
                                 }
                                 is MediaValidator.ValidationStatus.Success -> {
-                                    Text("✓ Successfully loaded", color = Color.Green)
+                                    Text("Status: ✓ Loaded (Coil)", color = Color.Green)
                                 }
                                 is MediaValidator.ValidationStatus.Error -> {
-                                    Text("✗ Failed to load", color = Color.Red)
-                                    Text(imageLoadStatus.message, color = Color.Red)
+                                    Text("Status: ✗ Failed", color = Color.Red)
+                                    Text(imageLoadStatus.message, color = Color.Red, fontSize = 12.sp)
                                 }
+                                else -> {}
                             }
+                        } else {
+                            Text("No Image found in sample set", color = Color.Gray)
                         }
 
-                        // Display video loading status
-                        if (videoLoadStatus !is MediaValidator.ValidationStatus.Idle) {
-                            Text("", color = Color.White) // spacer
-                            Text("Video Status:", color = Color.Cyan)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // VIDEO SECTION
+                        if (result.videoSample != null) {
+                            Text("Video Sample:", color = Color.Cyan, fontSize = 16.sp)
+                            Text("URL: ${result.videoSample.url}", color = Color.White, fontSize = 12.sp)
+                             if (result.videoSample.mimeType != null) {
+                                Text("MIME: ${result.videoSample.mimeType}", color = Color.LightGray, fontSize = 12.sp)
+                            }
+
                             when (videoLoadStatus) {
                                 is MediaValidator.ValidationStatus.Loading -> {
-                                    Text("Loading...", color = Color.Yellow)
-                                    CircularProgressIndicator(color = Color.White)
+                                    Text("Status: Loading...", color = Color.Yellow)
                                 }
                                 is MediaValidator.ValidationStatus.Success -> {
-                                    Text("✓ Successfully loaded", color = Color.Green)
+                                    Text("Status: ✓ Loaded (ExoPlayer)", color = Color.Green)
                                 }
                                 is MediaValidator.ValidationStatus.Error -> {
-                                    Text("✗ Failed to load", color = Color.Red)
-                                    Text(videoLoadStatus.message, color = Color.Red)
+                                    Text("Status: ✗ Failed", color = Color.Red)
+                                    Text(videoLoadStatus.message, color = Color.Red, fontSize = 12.sp)
                                 }
+                                else -> {}
                             }
+                        } else {
+                            Text("No Video found in sample set", color = Color.Gray)
                         }
                     }
                     is MediaRepository.QueryResult.Error -> {
