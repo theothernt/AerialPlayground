@@ -41,6 +41,9 @@ import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import androidx.compose.material3.CircularProgressIndicator
 import coil3.imageLoader
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalTvMaterial3Api::class)
@@ -192,8 +195,16 @@ class MainActivity : ComponentActivity() {
         data class Success(val url: String) : ImageLoadStatus()
         data class Error(val message: String) : ImageLoadStatus()
     }
+
+    sealed class VideoLoadStatus {
+        data object Idle : VideoLoadStatus()
+        data object Loading : VideoLoadStatus()
+        data class Success(val url: String) : VideoLoadStatus()
+        data class Error(val message: String) : VideoLoadStatus()
+    }
 }
 
+@androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
@@ -202,6 +213,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var queryResult by remember { mutableStateOf<MainActivity.Result?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var imageLoadStatus by remember { mutableStateOf<MainActivity.ImageLoadStatus>(MainActivity.ImageLoadStatus.Idle) }
+    var videoLoadStatus by remember { mutableStateOf<MainActivity.VideoLoadStatus>(MainActivity.VideoLoadStatus.Idle) }
 
     Box(
         modifier = modifier
@@ -214,21 +226,37 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 Log.d("MediaProviderTest", "Button clicked - initiating query")
                 isLoading = true
                 imageLoadStatus = MainActivity.ImageLoadStatus.Idle
+                videoLoadStatus = MainActivity.VideoLoadStatus.Idle
                 MainActivity.queryMediaCount(context) { result ->
                     when (result) {
                         is MainActivity.Result.Success -> {
                             Log.i("MediaProviderTest", "Query result received: ${result.count} items")
-                            // Try to load image if we have a valid URL
+                            // Try to load media if we have a valid URL
                             if (result.sampleUrl != null) {
-                                imageLoadStatus = MainActivity.ImageLoadStatus.Loading
-                                loadImageWithCoil(context, result.sampleUrl) { loadStatus ->
-                                    imageLoadStatus = loadStatus
+                                val mediaType = getMediaType(result.sampleUrl)
+                                when (mediaType) {
+                                    MediaType.IMAGE -> {
+                                        imageLoadStatus = MainActivity.ImageLoadStatus.Loading
+                                        loadImageWithCoil(context, result.sampleUrl) { loadStatus ->
+                                            imageLoadStatus = loadStatus
+                                        }
+                                    }
+                                    MediaType.VIDEO -> {
+                                        videoLoadStatus = MainActivity.VideoLoadStatus.Loading
+                                        loadVideoWithExoPlayer(context, result.sampleUrl) { loadStatus ->
+                                            videoLoadStatus = loadStatus
+                                        }
+                                    }
+                                    MediaType.UNKNOWN -> {
+                                        Log.w("MediaProviderTest", "Unknown media type for: ${result.sampleUrl}")
+                                    }
                                 }
                             }
                         }
                         is MainActivity.Result.Error -> {
                             Log.e("MediaProviderTest", "Query error received: ${result.message}")
                             imageLoadStatus = MainActivity.ImageLoadStatus.Idle
+                            videoLoadStatus = MainActivity.VideoLoadStatus.Idle
                         }
                     }
                     queryResult = result
@@ -250,10 +278,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
         CustomAlertDialog(
             result = queryResult!!,
             imageLoadStatus = imageLoadStatus,
+            videoLoadStatus = videoLoadStatus,
             onDismiss = {
                 showDialog = false
                 queryResult = null
                 imageLoadStatus = MainActivity.ImageLoadStatus.Idle
+                videoLoadStatus = MainActivity.VideoLoadStatus.Idle
             }
         )
     }
@@ -264,6 +294,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
 fun CustomAlertDialog(
     result: MainActivity.Result,
     imageLoadStatus: MainActivity.ImageLoadStatus = MainActivity.ImageLoadStatus.Idle,
+    videoLoadStatus: MainActivity.VideoLoadStatus = MainActivity.VideoLoadStatus.Idle,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -299,21 +330,42 @@ fun CustomAlertDialog(
                         }
 
                         // Display image loading status
-                        Text("", color = Color.White) // spacer
-                        when (imageLoadStatus) {
-                            is MainActivity.ImageLoadStatus.Loading -> {
-                                Text("Image Status: Loading...", color = Color.Yellow)
-                                CircularProgressIndicator(color = Color.White)
+                        if (imageLoadStatus != MainActivity.ImageLoadStatus.Idle) {
+                            Text("", color = Color.White) // spacer
+                            Text("Image Status:", color = Color.Cyan)
+                            when (imageLoadStatus) {
+                                is MainActivity.ImageLoadStatus.Loading -> {
+                                    Text("Loading...", color = Color.Yellow)
+                                    CircularProgressIndicator(color = Color.White)
+                                }
+                                is MainActivity.ImageLoadStatus.Success -> {
+                                    Text("✓ Successfully loaded", color = Color.Green)
+                                }
+                                is MainActivity.ImageLoadStatus.Error -> {
+                                    Text("✗ Failed to load", color = Color.Red)
+                                    Text(imageLoadStatus.message, color = Color.Red)
+                                }
+                                is MainActivity.ImageLoadStatus.Idle -> {}
                             }
-                            is MainActivity.ImageLoadStatus.Success -> {
-                                Text("Image Status: ✓ Successfully loaded", color = Color.Green)
-                            }
-                            is MainActivity.ImageLoadStatus.Error -> {
-                                Text("Image Status: ✗ Failed to load", color = Color.Red)
-                                Text(imageLoadStatus.message, color = Color.Red)
-                            }
-                            is MainActivity.ImageLoadStatus.Idle -> {
-                                // No status to show
+                        }
+
+                        // Display video loading status
+                        if (videoLoadStatus != MainActivity.VideoLoadStatus.Idle) {
+                            Text("", color = Color.White) // spacer
+                            Text("Video Status:", color = Color.Cyan)
+                            when (videoLoadStatus) {
+                                is MainActivity.VideoLoadStatus.Loading -> {
+                                    Text("Loading...", color = Color.Yellow)
+                                    CircularProgressIndicator(color = Color.White)
+                                }
+                                is MainActivity.VideoLoadStatus.Success -> {
+                                    Text("✓ Successfully loaded", color = Color.Green)
+                                }
+                                is MainActivity.VideoLoadStatus.Error -> {
+                                    Text("✗ Failed to load", color = Color.Red)
+                                    Text(videoLoadStatus.message, color = Color.Red)
+                                }
+                                is MainActivity.VideoLoadStatus.Idle -> {}
                             }
                         }
                     }
@@ -365,5 +417,72 @@ fun loadImageWithCoil(
                 onStatusUpdate(MainActivity.ImageLoadStatus.Error(e.message ?: "Unknown error"))
             }
         }
+    }
+}
+
+/**
+ * Load a video using Media3 ExoPlayer without displaying it visually.
+ * This validates that the video URL can be loaded successfully.
+ */
+@UnstableApi
+fun loadVideoWithExoPlayer(
+    context: Context,
+    videoUrl: String,
+    onStatusUpdate: (MainActivity.VideoLoadStatus) -> Unit
+) {
+    CoroutineScope(Dispatchers.Main).launch {
+        var exoPlayer: ExoPlayer? = null
+        try {
+            Log.d("MediaProviderTest", "Starting ExoPlayer video load for URL: $videoUrl")
+
+            exoPlayer = ExoPlayer.Builder(context).build()
+            val mediaItem = MediaItem.fromUri(videoUrl)
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.prepare()
+
+            // Set a listener to detect when the video is ready or fails to load
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == androidx.media3.common.Player.STATE_READY) {
+                        Log.d("MediaProviderTest", "Video is ready to play")
+                        onStatusUpdate(MainActivity.VideoLoadStatus.Success(videoUrl))
+                        exoPlayer.release()
+                    }
+                }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    Log.e("MediaProviderTest", "ExoPlayer error: ${error.message}")
+                    onStatusUpdate(MainActivity.VideoLoadStatus.Error(error.message ?: "Unknown error"))
+                    exoPlayer.release()
+                }
+            }
+
+            exoPlayer.addListener(listener)
+        } catch (e: Exception) {
+            Log.e("MediaProviderTest", "Error loading video with ExoPlayer", e)
+            onStatusUpdate(MainActivity.VideoLoadStatus.Error(e.message ?: "Unknown error"))
+            exoPlayer?.release()
+        }
+    }
+}
+
+/**
+ * Determine the media type based on file extension
+ */
+enum class MediaType {
+    IMAGE, VIDEO, UNKNOWN
+}
+
+fun getMediaType(url: String): MediaType {
+    val urlLower = url.lowercase()
+    return when {
+        urlLower.endsWith(".jpg") || urlLower.endsWith(".jpeg") ||
+        urlLower.endsWith(".png") || urlLower.endsWith(".gif") ||
+        urlLower.endsWith(".webp") -> MediaType.IMAGE
+        urlLower.endsWith(".mp4") || urlLower.endsWith(".mkv") ||
+        urlLower.endsWith(".avi") || urlLower.endsWith(".mov") ||
+        urlLower.endsWith(".flv") || urlLower.endsWith(".wmv") ||
+        urlLower.endsWith(".webm") -> MediaType.VIDEO
+        else -> MediaType.UNKNOWN
     }
 }
