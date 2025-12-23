@@ -31,7 +31,7 @@ android {
         jvmToolchain(21)
 
         sourceSets.configureEach {
-            languageSettings.languageVersion = "2.2"
+            languageSettings.languageVersion = "2.3"
         }
     }
 
@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.androidx.tv.material)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.coil.compose)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

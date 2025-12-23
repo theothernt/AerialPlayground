@@ -37,6 +37,10 @@ import kotlinx.coroutines.withContext
 import androidx.core.net.toUri
 import android.provider.OpenableColumns
 import kotlin.random.Random
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import androidx.compose.material3.CircularProgressIndicator
+import coil3.imageLoader
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalTvMaterial3Api::class)
@@ -181,6 +185,13 @@ class MainActivity : ComponentActivity() {
         data class Success(val count: Int, val columns: List<String>, val uri: String, val sampleUrl: String?, val samplePath: String?, val resolvedFilename: String?) : Result()
         data class Error(val message: String) : Result()
     }
+
+    sealed class ImageLoadStatus {
+        data object Idle : ImageLoadStatus()
+        data object Loading : ImageLoadStatus()
+        data class Success(val url: String) : ImageLoadStatus()
+        data class Error(val message: String) : ImageLoadStatus()
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -190,6 +201,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
     var showDialog by remember { mutableStateOf(false) }
     var queryResult by remember { mutableStateOf<MainActivity.Result?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var imageLoadStatus by remember { mutableStateOf<MainActivity.ImageLoadStatus>(MainActivity.ImageLoadStatus.Idle) }
 
     Box(
         modifier = modifier
@@ -201,13 +213,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
             onClick = {
                 Log.d("MediaProviderTest", "Button clicked - initiating query")
                 isLoading = true
+                imageLoadStatus = MainActivity.ImageLoadStatus.Idle
                 MainActivity.queryMediaCount(context) { result ->
                     when (result) {
                         is MainActivity.Result.Success -> {
                             Log.i("MediaProviderTest", "Query result received: ${result.count} items")
+                            // Try to load image if we have a valid URL
+                            if (result.sampleUrl != null) {
+                                imageLoadStatus = MainActivity.ImageLoadStatus.Loading
+                                loadImageWithCoil(context, result.sampleUrl) { loadStatus ->
+                                    imageLoadStatus = loadStatus
+                                }
+                            }
                         }
                         is MainActivity.Result.Error -> {
                             Log.e("MediaProviderTest", "Query error received: ${result.message}")
+                            imageLoadStatus = MainActivity.ImageLoadStatus.Idle
                         }
                     }
                     queryResult = result
@@ -228,9 +249,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
     if (showDialog && queryResult != null) {
         CustomAlertDialog(
             result = queryResult!!,
+            imageLoadStatus = imageLoadStatus,
             onDismiss = {
                 showDialog = false
                 queryResult = null
+                imageLoadStatus = MainActivity.ImageLoadStatus.Idle
             }
         )
     }
@@ -238,7 +261,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun CustomAlertDialog(result: MainActivity.Result, onDismiss: () -> Unit) {
+fun CustomAlertDialog(
+    result: MainActivity.Result,
+    imageLoadStatus: MainActivity.ImageLoadStatus = MainActivity.ImageLoadStatus.Idle,
+    onDismiss: () -> Unit
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -270,6 +297,25 @@ fun CustomAlertDialog(result: MainActivity.Result, onDismiss: () -> Unit) {
                         if (result.resolvedFilename != null) {
                             Text("Filename: ${result.resolvedFilename}", color = Color.White)
                         }
+
+                        // Display image loading status
+                        Text("", color = Color.White) // spacer
+                        when (imageLoadStatus) {
+                            is MainActivity.ImageLoadStatus.Loading -> {
+                                Text("Image Status: Loading...", color = Color.Yellow)
+                                CircularProgressIndicator(color = Color.White)
+                            }
+                            is MainActivity.ImageLoadStatus.Success -> {
+                                Text("Image Status: ✓ Successfully loaded", color = Color.Green)
+                            }
+                            is MainActivity.ImageLoadStatus.Error -> {
+                                Text("Image Status: ✗ Failed to load", color = Color.Red)
+                                Text(imageLoadStatus.message, color = Color.Red)
+                            }
+                            is MainActivity.ImageLoadStatus.Idle -> {
+                                // No status to show
+                            }
+                        }
                     }
                     is MainActivity.Result.Error -> {
                         Text("Error occurred:", color = Color.White)
@@ -287,5 +333,37 @@ fun CustomAlertDialog(result: MainActivity.Result, onDismiss: () -> Unit) {
 fun MainScreenPreview() {
     MediaProviderTestTheme {
         MainScreen()
+    }
+}
+
+/**
+ * Load an image using Coil without displaying it visually.
+ * This validates that the URL can be loaded successfully.
+ */
+fun loadImageWithCoil(
+    context: Context,
+    imageUrl: String,
+    onStatusUpdate: (MainActivity.ImageLoadStatus) -> Unit
+) {
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            Log.d("MediaProviderTest", "Starting Coil image load for URL: $imageUrl")
+
+            val request = ImageRequest.Builder(context)
+                .data(imageUrl)
+                .build()
+
+            val result = context.imageLoader.execute(request)
+
+            Log.d("MediaProviderTest", "Coil result: ${result.image}")
+            withContext(Dispatchers.Main) {
+                onStatusUpdate(MainActivity.ImageLoadStatus.Success(imageUrl))
+            }
+        } catch (e: Exception) {
+            Log.e("MediaProviderTest", "Error loading image with Coil", e)
+            withContext(Dispatchers.Main) {
+                onStatusUpdate(MainActivity.ImageLoadStatus.Error(e.message ?: "Unknown error"))
+            }
+        }
     }
 }
