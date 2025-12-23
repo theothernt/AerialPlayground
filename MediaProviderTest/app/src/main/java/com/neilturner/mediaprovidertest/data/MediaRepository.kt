@@ -87,16 +87,22 @@ class MediaRepository(private val context: Context) {
                                 var samplePath: String? = null
                                 var sampleMimeType: String? = null
 
-                                if (urlColumnIndex != -1) sampleUrl = c.getString(urlColumnIndex)
                                 if (dataColumnIndex != -1) samplePath = c.getString(dataColumnIndex)
                                 if (mimeTypeColumnIndex != -1) sampleMimeType = c.getString(mimeTypeColumnIndex)
 
-                                // Fallback for URL
-                                if (sampleUrl == null) {
+                                // STRATEGY 1: Check 'url' column
+                                if (urlColumnIndex != -1) {
+                                    sampleUrl = c.getString(urlColumnIndex)
+                                }
+
+                                // STRATEGY 2: If 'url' didn't yield a content URI, scan ALL columns
+                                // This handles cases where 'url' might be a file path, but another column holds the content URI
+                                if (sampleUrl == null || !sampleUrl.startsWith("content://")) {
                                     for (col in 0 until c.columnCount) {
                                         try {
                                             val value = c.getString(col)
-                                            if (value != null && (value.startsWith("http") || value.startsWith("content"))) {
+                                            if (value != null && value.startsWith("content://")) {
+                                                Log.d(TAG, "Found content URI in column '$col': $value")
                                                 sampleUrl = value
                                                 break
                                             }
